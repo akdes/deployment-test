@@ -4,13 +4,22 @@ env:
   OPENSHIFT_SERVER: ${{ secrets.OPENSHIFT_API_URL }}
   OPENSHIFT_TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}
   OPENSHIFT_NAMESPACE: ${{ secrets.OPENSHIFT_NAMESPACE }}
-  APP_NAME: "deployment-test"
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   IMAGE_REGISTRY_USER: ${{ github.actor }}
   IMAGE_REGISTRY_PASSWORD: ${{ secrets.GHCR_TOKEN }}
   IMAGE_TAGS: "1.0.${{ github.run_number }}"
 
 on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Choose the environment (production or testing)'
+        required: true
+        default: 'testing'
+        options:
+          - testing
+          - production
+
   push:
     branches: [ "main" ]
 
@@ -18,7 +27,7 @@ jobs:
   openshift-ci-cd:
     name: Build and Deploy to OpenShift
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ github.event.inputs.environment }}  # Dynamische Auswahl basierend auf dem Input
 
     steps:
     - name: Check for required secrets
@@ -85,73 +94,10 @@ jobs:
         insecure_skip_tls_verify: true
         namespace: ${{ env.OPENSHIFT_NAMESPACE }}
 
-    - name: Create or update Deployment and Service
+    - name: Apply Kubernetes resources using kustomize
       run: |
-        cat <<EOF | oc apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: ${{ env.APP_NAME }}
-          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: ${{ env.APP_NAME }}
-          template:
-            metadata:
-              labels:
-                app: ${{ env.APP_NAME }}
-            spec:
-              imagePullSecrets:
-                - name: ghcr-pull-secret
-              containers:
-              - name: ${{ env.APP_NAME }}
-                image: ${{ steps.push-image.outputs.registry-path }}
-                ports:
-                - containerPort: 8080
-                volumeMounts:
-                - name: nginx-cache
-                  mountPath: /var/cache/nginx
-                  readOnly: false
-                - name: nginx-client-temp
-                  mountPath: /var/cache/nginx/client_temp
-                  readOnly: false
-              volumes:
-              - name: nginx-cache
-                emptyDir: {}
-              - name: nginx-client-temp
-                emptyDir: {}
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: ${{ env.APP_NAME }}
-          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
-        spec:
-          selector:
-            app: ${{ env.APP_NAME }}
-          ports:
-            - protocol: TCP
-              port: 80
-              targetPort: 8080
-        EOF
-
-    - name: Create Route (Optional)
-      run: |
-        cat <<EOF | oc apply -f -
-        apiVersion: route.openshift.io/v1
-        kind: Route
-        metadata:
-          name: ${{ env.APP_NAME }}
-          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
-        spec:
-          to:
-            kind: Service
-            name: ${{ env.APP_NAME }}
-          port:
-            targetPort: 8080
-        EOF
+        KUSTOMIZE_DIR="deployment/overlays/${{ github.event.inputs.environment }}"
+        oc apply -k $KUSTOMIZE_DIR
 
     - name: Print application URL
       run: |
