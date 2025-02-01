@@ -1,0 +1,159 @@
+name: OpenShift Build and Deploy
+
+env:
+  OPENSHIFT_SERVER: ${{ secrets.OPENSHIFT_API_URL }}
+  OPENSHIFT_TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}
+  OPENSHIFT_NAMESPACE: ${{ secrets.OPENSHIFT_NAMESPACE }}
+  APP_NAME: "deployment-test"
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGE_REGISTRY_USER: ${{ github.actor }}
+  IMAGE_REGISTRY_PASSWORD: ${{ secrets.GHCR_TOKEN }}
+  IMAGE_TAGS: "1.0.${{ github.run_number }}"
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  openshift-ci-cd:
+    name: Build and Deploy to OpenShift
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Check for required secrets
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const secrets = {
+            OPENSHIFT_SERVER: `${{ secrets.OPENSHIFT_API_URL }}`,
+            OPENSHIFT_TOKEN: `${{ secrets.OPENSHIFT_TOKEN }}`
+          };
+          const GHCR = "ghcr.io";
+          if (`${{ env.IMAGE_REGISTRY }}`.startsWith(GHCR)) {
+            core.info(`Image registry is ${GHCR} - no registry password required`);
+          } else {
+            core.info("A registry password is required");
+            secrets["IMAGE_REGISTRY_PASSWORD"] = `${{ secrets.IMAGE_REGISTRY_PASSWORD }}`;
+          }
+          const missingSecrets = Object.entries(secrets).filter(([ name, value ]) => {
+            if (value.length === 0) {
+              core.error(`Secret "${name}" is not set`);
+              return true;
+            }
+            core.info(`✔️ Secret "${name}" is set`);
+            return false;
+          });
+          if (missingSecrets.length > 0) {
+            core.setFailed("❌ Missing required secrets");
+          } else {
+            core.info(`✅ All the required secrets are set`);
+          }
+
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Build and push Docker image
+      id: build-image
+      uses: redhat-actions/buildah-build@v2
+      with:
+        image: ${{ env.APP_NAME }}
+        tags: ${{ env.IMAGE_TAGS }}
+        dockerfiles: |
+          ./Dockerfile
+
+    - name: Push image to registry
+      id: push-image
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        image: ${{ steps.build-image.outputs.image }}
+        tags: ${{ steps.build-image.outputs.tags }}
+        registry: ${{ env.IMAGE_REGISTRY }}
+        username: ${{ env.IMAGE_REGISTRY_USER }}
+        password: ${{ env.IMAGE_REGISTRY_PASSWORD }}
+
+    - name: Install oc
+      uses: redhat-actions/openshift-tools-installer@v1
+      with:
+        oc: 4
+
+    - name: Log in to OpenShift
+      uses: redhat-actions/oc-login@v1
+      with:
+        openshift_server_url: ${{ env.OPENSHIFT_SERVER }}
+        openshift_token: ${{ env.OPENSHIFT_TOKEN }}
+        insecure_skip_tls_verify: true
+        namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+
+    - name: Create or update Deployment and Service
+      run: |
+        cat <<EOF | oc apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${{ env.APP_NAME }}
+          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: ${{ env.APP_NAME }}
+          template:
+            metadata:
+              labels:
+                app: ${{ env.APP_NAME }}
+            spec:
+              imagePullSecrets:
+                - name: ghcr-pull-secret
+              containers:
+              - name: ${{ env.APP_NAME }}
+                image: ${{ steps.push-image.outputs.registry-path }}
+                ports:
+                - containerPort: 8080
+                volumeMounts:
+                - name: nginx-cache
+                  mountPath: /var/cache/nginx
+                  readOnly: false
+                - name: nginx-client-temp
+                  mountPath: /var/cache/nginx/client_temp
+                  readOnly: false
+              volumes:
+              - name: nginx-cache
+                emptyDir: {}
+              - name: nginx-client-temp
+                emptyDir: {}
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${{ env.APP_NAME }}
+          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+        spec:
+          selector:
+            app: ${{ env.APP_NAME }}
+          ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 8080
+        EOF
+
+    - name: Create Route (Optional)
+      run: |
+        cat <<EOF | oc apply -f -
+        apiVersion: route.openshift.io/v1
+        kind: Route
+        metadata:
+          name: ${{ env.APP_NAME }}
+          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+        spec:
+          to:
+            kind: Service
+            name: ${{ env.APP_NAME }}
+          port:
+            targetPort: 8080
+        EOF
+
+    - name: Print application URL
+      run: |
+        ROUTE=$(oc get route ${{ env.APP_NAME }} -n ${{ env.OPENSHIFT_NAMESPACE }} -o jsonpath='{.spec.host}')
+        echo "Your application is available at: http://$ROUTE"
