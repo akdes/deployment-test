@@ -58,12 +58,13 @@ jobs:
 
     - name: Create or update Deployment and Service
       run: |
-        oc apply -f deployment/deployment.yaml
-        oc apply -f deployment/service.yaml
+        # Ersetze die Variablen und wende die Dateien an
+        envsubst < deployment/deployment.yaml | oc apply -f -
+        envsubst < deployment/service.yaml | oc apply -f -
 
     - name: Create Route (Optional)
       run: |
-        oc apply -f deployment/route.yaml
+        envsubst < deployment/route.yaml | oc apply -f -
 
     - name: Print application URL
       run: |
