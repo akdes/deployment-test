@@ -58,13 +58,19 @@ jobs:
 
     - name: Create or update Deployment and Service
       run: |
-        # Ersetze die Variablen und wende die Dateien an
-        envsubst < deployment/deployment.yaml | oc apply -f -
-        envsubst < deployment/service.yaml | oc apply -f -
+        run: |
+        sed -i 's|${APP_NAME}|'"$APP_NAME"'|g' deployment/deployment.yaml
+        sed -i 's|${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/deployment.yaml
+        oc apply -f deployment/deployment.yaml
+        sed -i 's|${APP_NAME}|'"$APP_NAME"'|g' deployment/service.yaml
+        sed -i 's|${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/service.yaml
+        oc apply -f deployment/service.yaml
 
     - name: Create Route (Optional)
       run: |
-        envsubst < deployment/route.yaml | oc apply -f -
+        sed -i 's|${APP_NAME}|'"$APP_NAME"'|g' deployment/route.yaml
+        sed -i 's|${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/route.yaml
+        oc apply -f deployment/route.yaml
 
     - name: Print application URL
       run: |
