@@ -60,9 +60,11 @@ jobs:
       run: |
         export APP_NAME=${{ env.APP_NAME }}
         export OPENSHIFT_NAMESPACE=${{ env.OPENSHIFT_NAMESPACE }}
+        export IMAGE=${{ steps.push-image.outputs.registry-path }}
 
         sed -i 's|\${APP_NAME}|'"$APP_NAME"'|g' deployment/deployment.yaml deployment/service.yaml
         sed -i 's|\${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/deployment.yaml deployment/service.yaml
+        sed -i 's|\${IMAGE}|'"$IMAGE"'|g' deployment/deployment.yaml
 
         oc apply -f deployment/deployment.yaml
         oc apply -f deployment/service.yaml
