@@ -58,18 +58,23 @@ jobs:
 
     - name: Create or update Deployment and Service
       run: |
-        run: |
-        sed -i 's|${APP_NAME}|'"$APP_NAME"'|g' deployment/deployment.yaml
-        sed -i 's|${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/deployment.yaml
+        export APP_NAME=${{ env.APP_NAME }}
+        export OPENSHIFT_NAMESPACE=${{ env.OPENSHIFT_NAMESPACE }}
+
+        sed -i 's|\${APP_NAME}|'"$APP_NAME"'|g' deployment/deployment.yaml deployment/service.yaml
+        sed -i 's|\${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/deployment.yaml deployment/service.yaml
+
         oc apply -f deployment/deployment.yaml
-        sed -i 's|${APP_NAME}|'"$APP_NAME"'|g' deployment/service.yaml
-        sed -i 's|${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/service.yaml
         oc apply -f deployment/service.yaml
 
     - name: Create Route (Optional)
       run: |
-        sed -i 's|${APP_NAME}|'"$APP_NAME"'|g' deployment/route.yaml
-        sed -i 's|${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/route.yaml
+        export APP_NAME=${{ env.APP_NAME }}
+        export OPENSHIFT_NAMESPACE=${{ env.OPENSHIFT_NAMESPACE }}
+
+        sed -i 's|\${APP_NAME}|'"$APP_NAME"'|g' deployment/route.yaml
+        sed -i 's|\${OPENSHIFT_NAMESPACE}|'"$OPENSHIFT_NAMESPACE"'|g' deployment/route.yaml
+
         oc apply -f deployment/route.yaml
 
     - name: Print application URL
