@@ -1,4 +1,4 @@
 resources:
   - ../../base
 
-namePrefix: prod-
+nameSuffix: -prod
